@@ -75,23 +75,11 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 }
 %end
 
-#pragma mark - Hide ads (drop ad models)
-%hook AWEAwemeModel
-- (instancetype)init {
-    id ret = %orig;
-    if (![VHDManager hideAds]) return ret;
-    // Use performSelector to avoid forward-declaration warning
-    id val = [self performSelector:@selector(isAds)];
-    if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) {
-        return nil;
-    }
-    return ret;
-}
-
-- (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
-- (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }
+#pragma mark - Hide ads: handled by checking isAds in feed cells (no init hook needed)
 
 #pragma mark - Origin photo list override (HD / no watermark)
+%hook AWEAwemeModel
+
 - (NSArray *)originPhotoURL {
     NSArray *original = %orig;
     if (![original isKindOfClass:[NSArray class]]) return original;
@@ -119,6 +107,9 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
     }
     return fixed;
 }
+
+- (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
+- (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }
 %end
 
 #pragma mark - Clean URLs returned to callers (HD downloads)

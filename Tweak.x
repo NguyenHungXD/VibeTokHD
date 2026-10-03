@@ -176,7 +176,6 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
     if ([self respondsToSelector:vcSel]) vc = [self performSelector:vcSel];
     if (![vc isKindOfClass:[UIViewController class]]) return;
 
-    // Walk: vc -> model -> video -> playURL -> originURLList -> first
     id model = [vc performSelector:NSSelectorFromString(@"model")];
     if (!model) return;
     id video = [model performSelector:NSSelectorFromString(@"video")];
@@ -192,14 +191,12 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
     }
     if (!first) return;
 
-    // Clean URL: remove watermark template + query string
     NSString *clean = [first stringByReplacingOccurrencesOfString:@"~tplv-" withString:@"~tplv-noop."];
     NSRange q = [clean rangeOfString:@"?"];
     if (q.location != NSNotFound) clean = [clean substringToIndex:q.location];
 
     [UIPasteboard generalPasteboard].string = clean;
 
-    // Show toast via UIAlertView (works without forward decl)
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"VibeTokHD"
                                                                     message:[NSString stringWithFormat:@"Video link copied!\n\n%@", clean]
                                                              preferredStyle:UIAlertControllerStyleAlert];

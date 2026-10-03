@@ -77,24 +77,6 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 
 #pragma mark - Hide ads (drop ad models)
 %hook AWEAwemeModel
-- (id)initWithDictionary:(NSDictionary *)arg1 error:(NSError **)arg2 {
-    id ret = %orig;
-    if ([VHDManager hideAds]) {
-        BOOL isAd = NO;
-        SEL adSel = NSSelectorFromString(@"isAds");
-        if ([self respondsToSelector:adSel]) {
-            NSMethodSignature *sig = [self methodSignatureForSelector:adSel];
-            if (sig) {
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                inv.selector = adSel;
-                [inv invokeWithTarget:self];
-                [inv getReturnValue:&isAd];
-            }
-        }
-        if (isAd) return nil;
-    }
-    return ret;
-}
 - (instancetype)init {
     id ret = %orig;
     if ([VHDManager hideAds]) {

@@ -9,10 +9,6 @@
 //  - Lưu/tải profile macro qua NSUserDefaults
 //  - Activation gesture: 3-finger tap để hiện panel
 
-// Forward declarations
-@class VHDFeedTracker;
-@class VHDFloatingPanel;
-
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <substrate.h>
@@ -50,6 +46,38 @@ static NSString *const kVHD_AC_SwipeMaxMs     = @"VHD_AC_SwipeMaxMs";      // ma
 static NSString *const kVHD_AC_LoopCount      = @"VHD_AC_LoopCount";       // 0=infinite
 static NSString *const kVHD_AC_ClickPoints    = @"VHD_AC_ClickPoints";     // NSArray of @{x,y,interval}
 static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=panel button, 1=3-finger, 2=3-tap
+
+// ============================================================================
+// Feed Tracker - watches TikTok's feed API calls to detect "no more videos"
+// (Must be declared BEFORE AutoSwipeEngine uses it)
+// ============================================================================
+@interface VHDFeedTracker : NSObject
+@property (nonatomic, assign) NSInteger recentFeedRequests;
+@property (nonatomic, assign) NSInteger swipesSinceLastRequest;
+@property (nonatomic, assign) NSInteger totalFeedRequests;
+@property (nonatomic, copy)   NSDate *lastFeedRequestTime;
+@property (nonatomic, assign) BOOL noNewContentSinceLastN;
++ (instancetype)shared;
+- (void)recordFeedRequest:(NSString *)url;
+@end
+
+@implementation VHDFeedTracker
++ (instancetype)shared {
+    static VHDFeedTracker *s; static dispatch_once_t once;
+    dispatch_once(&once, ^{ s = [VHDFeedTracker new]; });
+    return s;
+}
+- (void)recordFeedRequest:(NSString *)url {
+    self.recentFeedRequests++;
+    self.totalFeedRequests++;
+    self.lastFeedRequestTime = [NSDate date];
+    self.swipesSinceLastRequest = 0;
+    vhd_ac_log(@"Feed API request: %@ (total %ld)", url, (long)self.totalFeedRequests);
+}
+- (BOOL)noNewContentSinceLastN {
+    return self.swipesSinceLastRequest > 5 && self.totalFeedRequests > 0;
+}
+@end
 
 // ============================================================================
 // AutoSwipe Engine
@@ -394,43 +422,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 }
 @end
 
-// ============================================================================
-// Feed Tracker - watches TikTok's feed API calls to detect "no more videos"
-// ============================================================================
-@interface VHDFeedTracker : NSObject
-@property (nonatomic, assign) NSInteger recentFeedRequests;       // count in last N swipes
-@property (nonatomic, assign) NSInteger swipesSinceLastRequest;
-@property (nonatomic, assign) NSInteger totalFeedRequests;
-@property (nonatomic, copy)   NSDate *lastFeedRequestTime;
-@property (nonatomic, assign) BOOL noNewContentSinceLastN;
-
-+ (instancetype)shared;
-- (void)recordFeedRequest:(NSString *)url;
-@end
-
-@implementation VHDFeedTracker
-+ (instancetype)shared {
-    static VHDFeedTracker *s; static dispatch_once_t once;
-    dispatch_once(&once, ^{ s = [VHDFeedTracker new]; });
-    return s;
-}
-
-- (void)recordFeedRequest:(NSString *)url {
-    self.recentFeedRequests++;
-    self.totalFeedRequests++;
-    self.lastFeedRequestTime = [NSDate date];
-    self.swipesSinceLastRequest = 0;
-    vhd_ac_log(@"Feed API request: %@ (total %ld)",
-            url, (long)self.totalFeedRequests);
-}
-
-// Hook to detect "no new content" - called from swipe engine
-- (BOOL)noNewContentSinceLastN {
-    // If we've swiped >5 times without any new feed API request,
-    // AND we have at least 1 historical request, we're likely at end
-    return self.swipesSinceLastRequest > 5 && self.totalFeedRequests > 0;
-}
-@end
+// (VHDFeedTracker moved to top - see line ~55)
 
 // ============================================================================
 // AutoClick Engine
@@ -592,6 +584,9 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
     });
     return s;
 }
+
+// Dummy implementation for @selector(recTap) used as associated object key
+- (void)recTap {}
 
 - (void)show {
     if (self.hidden) {

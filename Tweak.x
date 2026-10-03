@@ -1,4 +1,4 @@
-﻿// VibeTokHD - Tweak.x
+// VibeTokHD - Tweak.x
 // Pattern: long-press menu on TikTok cells, downloads via NSURLSession, save via UIActivityViewController.
 // Reference: BandarHL/BHTikTok
 //

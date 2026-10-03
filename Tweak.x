@@ -79,19 +79,11 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 %hook AWEAwemeModel
 - (instancetype)init {
     id ret = %orig;
-    if ([VHDManager hideAds]) {
-        BOOL isAd = NO;
-        SEL adSel = NSSelectorFromString(@"isAds");
-        if ([self respondsToSelector:adSel]) {
-            NSMethodSignature *sig = [self methodSignatureForSelector:adSel];
-            if (sig) {
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                inv.selector = adSel;
-                [inv invokeWithTarget:self];
-                [inv getReturnValue:&isAd];
-            }
-        }
-        if (isAd) return nil;
+    if (![VHDManager hideAds]) return ret;
+    // Use performSelector to avoid forward-declaration warning
+    id val = [self performSelector:@selector(isAds)];
+    if ([val respondsToSelector:@selector(boolValue)] && [val boolValue]) {
+        return nil;
     }
     return ret;
 }

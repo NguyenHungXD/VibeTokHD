@@ -1,175 +1,166 @@
-// VibeTokHD v2.0 - All-in-One HD Patch
-// Build với Theos: $ make package
+// VibeTokHD - Tweak.x
+// Pattern: long-press menu on TikTok cells, downloads via NSURLSession, save via UIActivityViewController.
+// Reference: BandarHL/BHTikTok
+//
+// Build:
+//   $ make package
 
-#import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
+#import "TikTokHeaders.h"
+#import "VHDManager.h"
+#import "VHDDownload.h"
 #import <Photos/Photos.h>
-#import <substrate.h>
 
-// MSHookIvar template - need to use non-template form
-#define VHD_HookIvar(obj, name) ((__typeof__(obj))(object_getIvar(obj, object_getInstanceVariable([obj class], #name, NULL))))
+#pragma mark - Jailbreak quarantine
+static NSArray *vhd_jailbreakPaths;
 
-// ============================================================================
-// CONFIG
-// ============================================================================
-#define VHD_ENABLED 1
-#define VHD_DOWNLOAD_VIDEO 1
-#define VHD_DOWNLOAD_PHOTO 1
-#define VHD_REMOVE_WATERMARK 1
-#define VHD_DOWNLOAD_SLIDESHOW 1
-#define VHD_LOG_LEVEL 1
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-static void vhd_log(NSString *fmt, ...) {
-#if VHD_LOG_LEVEL >= 1
-    va_list args;
-    va_start(args, fmt);
-    NSLog([NSString stringWithFormat:@"[VHD] %@", fmt], args);
-    va_end(args);
-#endif
+#pragma mark - Helper: crop right edge (remove TikTok watermark area)
+static UIImage *vhd_cropWatermark(UIImage *original) {
+    if (!original) return original;
+    CGSize sz = original.size;
+    CGFloat cropW = sz.width * 0.08;
+    CGRect keep = CGRectMake(0, 0, sz.width - cropW, sz.height);
+    CGImageRef ref = CGImageCreateWithImageInRect(original.CGImage, keep);
+    UIImage *out = [UIImage imageWithCGImage:ref scale:original.scale orientation:original.imageOrientation];
+    CGImageRelease(ref);
+    return out;
 }
 
+#pragma mark - URL helpers (clean watermark template markers)
 static NSString *vhd_cleanURL(NSString *url) {
-    if (!url || ![url isKindOfClass:[NSString class]]) return url;
+    if (![url isKindOfClass:[NSString class]]) return url;
     NSRange q = [url rangeOfString:@"?"];
     NSString *clean = (q.location != NSNotFound) ? [url substringToIndex:q.location] : url;
-    clean = [clean stringByReplacingOccurrencesOfString:@"~tplv-"
-                                              withString:@"~tplv-noop."];
+    clean = [clean stringByReplacingOccurrencesOfString:@"~tplv-" withString:@"~tplv-noop."];
     return clean;
 }
 
-static NSString *vhd_bestVideoURL(id playURLList) {
-    if (![playURLList isKindOfClass:[NSArray class]]) return nil;
-    if ([playURLList count] == 0) return nil;
-    id first = [playURLList firstObject];
-    if ([first isKindOfClass:[NSString class]]) return vhd_cleanURL(first);
-    if ([first isKindOfClass:[NSDictionary class]]) {
-        __block NSString *best = nil;
-        __block NSInteger bestBitrate = -1;
-        [playURLList enumerateObjectsUsingBlock:^(NSDictionary *obj, NSUInteger idx, BOOL *stop) {
-            NSInteger br = [obj[@"bit_rate"] integerValue];
-            if (br > bestBitrate) {
-                bestBitrate = br;
-                best = obj[@"play_url"];
-            }
-        }];
-        return best ? vhd_cleanURL(best) : nil;
+#pragma mark - Save controller (viral Save Files menu)
+static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
+    if (!media) return;
+    UIViewController *top = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+            if (w.isKeyWindow) { top = w.rootViewController; break; }
+        }
+        if (top) break;
     }
+    while (top.presentedViewController) top = top.presentedViewController;
+    if (!top) return;
+    UIActivityViewController *ac = [[UIActivityViewController alloc] initWithActivityItems:@[media] applicationActivities:nil];
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
+        ac.popoverPresentationController.sourceView = top.view;
+        ac.popoverPresentationController.sourceRect = CGRectMake(top.view.bounds.size.width/2, top.view.bounds.size.height/2, 1, 1);
+    }
+    [top presentViewController:ac animated:YES completion:nil];
+}
+
+#pragma mark - AppDelegate init
+%hook AppDelegate
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    %orig;
+    if (![[NSUserDefaults standardUserDefaults] objectForKey:@"VHDFirstRun"]) {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"VHDFirstRun"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_save_video_hd"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_save_photo_hd"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_save_music_hd"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_remove_watermark"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_hide_ads"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_download_button"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_copy_video_link"];
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"vh_progress_bar"];
+        [VHDManager cleanCache];
+    }
+    return YES;
+}
+%end
+
+#pragma mark - Settings entry
+%hook AWESettingsNormalSectionViewModel
+- (void)viewDidLoad {
+    %orig;
+    if ([self.sectionIdentifier isEqualToString:@"account"]) {
+        TTKSettingsBaseCellPlugin *plugin = [[%c(TTKSettingsBaseCellPlugin) alloc] initWithPluginContext:self.context];
+        AWESettingItemModel *item = [[%c(AWESettingItemModel) alloc] initWithIdentifier:@"vhd_settings"];
+        [item setTitle:@"VibeTokHD"];
+        [item setDetail:@"Settings"];
+        [item setIconImage:[UIImage systemImageNamed:@"bolt.fill"]];
+        [item setType:99];
+        [plugin setItemModel:item];
+        [self insertModel:plugin atIndex:0 animated:YES];
+    }
+}
+%end
+
+%hook TTKSettingsBaseCellPlugin
+- (void)didSelectItemAtIndex:(NSInteger)index {
+    if ([self.itemModel.identifier isEqualToString:@"vhd_settings"]) {
+        // Minimal: just confirm
+        [%c(AWEUIAlertView) showAlertWithTitle:@"VibeTokHD"
+                                   description:@"Enabled. Long-press a video to download."
+                                         image:nil
+                              actionButtonTitle:@"OK"
+                               cancelButtonTitle:nil
+                                     actionBlock:nil
+                                      cancelBlock:nil];
+    } else {
+        %orig;
+    }
+}
+%end
+
+#pragma mark - Hide ads (drop ad models)
+%hook AWEAwemeModel
+- (id)initWithDictionary:(NSDictionary *)arg1 error:(NSError **)arg2 {
+    id ret = %orig;
+    if ([VHDManager hideAds] && [self isAds]) return nil;
+    return ret;
+}
+- (instancetype)init {
+    id ret = %orig;
+    if ([VHDManager hideAds] && [self isAds]) return nil;
+    return ret;
+}
+
+- (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
+- (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }
+%end
+
+#pragma mark - Clean URLs returned to callers (HD downloads)
+%hook AWEURLModel
+%new - (NSURL *)bestURLtoDownload {
+    NSArray *urls = self.originURLList;
+    for (NSString *u in urls) {
+        if ([u isKindOfClass:[NSString class]] &&
+            ([u containsString:@"video_mp4"] || [u containsString:@".jpeg"] || [u containsString:@".mp3"])) {
+            return [NSURL URLWithString:vhd_cleanURL(u)];
+        }
+    }
+    id first = urls.firstObject;
+    if ([first isKindOfClass:[NSString class]]) return [NSURL URLWithString:vhd_cleanURL(first)];
     return nil;
 }
 
-static void vhd_saveData(NSData *data, NSString *filename) {
-    if (!data) return;
-    UIImage *img = [UIImage imageWithData:data];
-    if (img) {
-        UIImageWriteToSavedPhotosAlbum(img, nil, NULL, NULL);
-        vhd_log(@"Saved %@ (%lu bytes)", filename, (unsigned long)[data length]);
+%new - (NSString *)bestURLtoDownloadFormat {
+    for (NSString *u in self.originURLList) {
+        if (![u isKindOfClass:[NSString class]]) continue;
+        if ([u containsString:@"video_mp4"]) return @"mp4";
+        if ([u containsString:@".jpeg"]) return @"jpeg";
+        if ([u containsString:@".png"]) return @"png";
+        if ([u containsString:@".mp3"]) return @"mp3";
+        if ([u containsString:@".m4a"]) return @"m4a";
     }
+    return @"mp4";
 }
-
-static void vhd_downloadURL(NSString *urlStr, NSString *filename, void (^onComplete)(NSData *)) {
-    NSString *clean = vhd_cleanURL(urlStr);
-    NSURL *url = [NSURL URLWithString:clean];
-    [[[NSURLSession sharedSession] dataTaskWithURL:url
-        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || !data) {
-            vhd_log(@"Download failed for %@: %@", filename, [error localizedDescription]);
-            return;
-        }
-        if (onComplete) onComplete(data);
-    }] resume];
-}
-
-static UIImage *vhd_cropWatermark(UIImage *original) {
-    if (!original) return original;
-    CGSize size = [original size];
-    CGFloat cropW = size.width * 0.08;
-    CGRect keepRect = CGRectMake(0, 0, size.width - cropW, size.height);
-    CGImageRef keepImage = CGImageCreateWithImageInRect([original CGImage], keepRect);
-    UIImage *cropped = [UIImage imageWithCGImage:keepImage scale:[original scale] orientation:[original imageOrientation]];
-    CGImageRelease(keepImage);
-    return cropped;
-}
-
-static void vhd_saveVideo(NSURL *url, NSString *filename) {
-    NSString *clean = [url absoluteString];
-    clean = vhd_cleanURL(clean);
-    vhd_log(@"Saving video: %@", clean);
-    [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:clean]
-        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || !data) {
-            vhd_log(@"Video download failed: %@", [error localizedDescription]);
-            return;
-        }
-        NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-        [data writeToFile:tempPath atomically:YES];
-        [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-            [PHAssetCreationRequest creationRequestForAssetFromVideoAtFileURL:[NSURL fileURLWithPath:tempPath]];
-        } completionHandler:^(BOOL success, NSError *err) {
-            [[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
-            if (success) vhd_log(@"Video saved: %@", filename);
-            else vhd_log(@"Video save failed: %@", [err localizedDescription]);
-        }];
-    }] resume];
-}
-
-// Helper: get ivar value with type safety
-static id vhd_getIvar(id self, const char *name) {
-    Ivar ivar = class_getInstanceVariable([self class], name);
-    if (!ivar) return nil;
-    return object_getIvar(self, ivar);
-}
-
-// ============================================================================
-// HOOK 1: handleLongPress
-// ============================================================================
-%hook TTKCommentPhotoSlideDetailViewController
-
-- (void)handleLongPress:(UILongPressGestureRecognizer *)gr {
-    %orig;
-
-#if VHD_DOWNLOAD_PHOTO
-    id aweme = vhd_getIvar(self, "_awemeModel");
-    if (!aweme) aweme = vhd_getIvar(self, "_model");
-
-    if (!aweme) return;
-
-    id urls = [aweme performSelector:@selector(originPhotoURL)];
-    if (![urls isKindOfClass:[NSArray class]]) urls = nil;
-
-    if (![urls count]) {
-        urls = [aweme performSelector:@selector(originURLList)];
-    }
-
-    if ([urls count] > 0) {
-        NSString *bestURL = (NSString *)[urls objectAtIndex:0];
-        vhd_downloadURL(bestURL, @"vhd_photo.jpg", ^(NSData *data) {
-            UIImage *img = [UIImage imageWithData:data];
-#if VHD_REMOVE_WATERMARK
-            img = vhd_cropWatermark(img);
-#endif
-            vhd_saveData(UIImageJPEGRepresentation(img, 0.95), @"vhd_photo.jpg");
-        });
-    }
-#endif
-}
-
 %end
 
-// ============================================================================
-// HOOK 2: AWEAwemeModel - Override getters
-// ============================================================================
-%hook AWEAwemeModel
-
+#pragma mark - Origin photo list override (HD / no watermark)
+%hook AWEAwemeModel (Attributes)
 - (NSArray *)originPhotoURL {
     NSArray *original = %orig;
     if (![original isKindOfClass:[NSArray class]]) return original;
-
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:[original count]];
-    for (NSString *u in original) {
+    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
+    for (id u in original) {
         if ([u isKindOfClass:[NSString class]]) {
             [fixed addObject:vhd_cleanURL(u)];
         } else {
@@ -182,9 +173,8 @@ static id vhd_getIvar(id self, const char *name) {
 - (NSArray *)originURLList {
     NSArray *original = %orig;
     if (![original isKindOfClass:[NSArray class]]) return original;
-
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:[original count]];
-    for (NSString *u in original) {
+    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
+    for (id u in original) {
         if ([u isKindOfClass:[NSString class]]) {
             [fixed addObject:vhd_cleanURL(u)];
         } else {
@@ -193,45 +183,328 @@ static id vhd_getIvar(id self, const char *name) {
     }
     return fixed;
 }
-
-- (NSArray *)playURLList {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-
-    NSMutableArray *sorted = [original mutableCopy];
-    [sorted sortUsingComparator:^NSComparisonResult(id a, id b) {
-        NSInteger br_a = 0, br_b = 0;
-        if ([a isKindOfClass:[NSDictionary class]]) br_a = [a[@"bit_rate"] integerValue];
-        if ([b isKindOfClass:[NSDictionary class]]) br_b = [b[@"bit_rate"] integerValue];
-        return br_b - br_a;
-    }];
-    return sorted;
-}
-
 %end
 
-// ============================================================================
-// HOOK 3: NSURL - Auto-strip query on TikTokCDN
-// ============================================================================
-%hook NSURL
+#pragma mark - Feed Cell: long-press menu (download / copy)
+%hook AWEFeedViewTemplateCell
 
-+ (id)URLWithString:(NSString *)URLString {
-    if (URLString && [URLString containsString:@"tiktokcdn.com"]) {
-        URLString = vhd_cleanURL(URLString);
+%property (nonatomic, strong) VHDDownload *hudDownloader;
+%property (nonatomic, copy)   NSString *hudFileext;
+
+- (void)configWithModel:(id)model {
+    %orig;
+    if ([VHDManager showDownloadButton]) {
+        [self vhd_addLongPress];
     }
-    return %orig(URLString);
 }
 
+- (void)configureWithModel:(id)model {
+    %orig;
+    if ([VHDManager showDownloadButton]) {
+        [self vhd_addLongPress];
+    }
+}
+
+%new - (void)vhd_addLongPress {
+    static void *kAssociated = &kAssociated;
+    id existing = objc_getAssociatedObject(self, kAssociated);
+    if (existing) return;
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
+    lp.minimumPressDuration = 0.4;
+    objc_setAssociatedObject(self, kAssociated, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self addGestureRecognizer:lp];
+}
+
+%new - (void)vhd_onLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    if (![self.viewController isKindOfClass:%c(AWEFeedCellViewController)]) return;
+    AWEFeedCellViewController *vc = (AWEFeedCellViewController *)self.viewController;
+
+    NSString *desc = vc.model.music_songName ?: @"TikTok";
+    TUXActionSheetController *sheet = [[%c(TUXActionSheetController) alloc] initWithTitle:desc];
+
+    if ([VHDManager saveVideoHD]) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Download video (HD)"
+                                                                 subtitle:nil
+                                                                    image:[UIImage systemImageNamed:@"arrow.down"]
+                                                              imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            NSURL *url = [vc.model.video.playURL bestURLtoDownload];
+            self.hudFileext = [vc.model.video.playURL bestURLtoDownloadFormat];
+            if (!url) return;
+            VHDDownload *dw = [VHDDownload new];
+            dw.delegate = self;
+            self.hudDownloader = dw;
+            [dw downloadFileWithURL:url];
+        }]];
+    }
+
+    if ([VHDManager savePhotoHD]) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Download photo (HD)"
+                                                                 subtitle:nil
+                                                                    image:[UIImage systemImageNamed:@"photo"]
+                                                              imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            NSArray *urls = vc.model.originPhotoURL;
+            NSString *first = [urls isKindOfClass:[NSArray class]] ? urls.firstObject : nil;
+            if (![first isKindOfClass:[NSString class]]) return;
+            NSURL *url = [NSURL URLWithString:vhd_cleanURL(first)];
+            if (!url) return;
+            self.hudFileext = @"jpeg";
+            VHDDownload *dw = [VHDDownload new];
+            dw.delegate = self;
+            self.hudDownloader = dw;
+            [dw downloadFileWithURL:url];
+        }]];
+    }
+
+    if ([VHDManager saveMusicHD] && vc.model.music) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Download music"
+                                                                 subtitle:nil
+                                                                    image:[UIImage systemImageNamed:@"music.note"]
+                                                              imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            AWEMusicModel *m = (AWEMusicModel *)vc.model.music;
+            NSURL *url = [m.playURL bestURLtoDownload];
+            self.hudFileext = [m.playURL bestURLtoDownloadFormat];
+            if (!url) return;
+            VHDDownload *dw = [VHDDownload new];
+            dw.delegate = self;
+            self.hudDownloader = dw;
+            [dw downloadFileWithURL:url];
+        }]];
+    }
+
+    if ([VHDManager copyVideoLink]) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Copy video link"
+                                                                 subtitle:nil
+                                                                    image:[UIImage systemImageNamed:@"doc.on.clipboard"]
+                                                              imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            NSURL *url = [vc.model.video.playURL bestURLtoDownload];
+            [UIPasteboard generalPasteboard].string = url ? url.absoluteString : @"";
+        }]];
+    }
+
+    if ([VHDManager copyDescription]) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Copy description"
+                                                                 subtitle:nil
+                                                                    image:[UIImage systemImageNamed:@"text.alignleft"]
+                                                              imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            [UIPasteboard generalPasteboard].string = desc ?: @"";
+        }]];
+    }
+
+    [sheet setDismissOnDraggingDown:YES];
+    UIViewController *top = self.viewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+    [top presentViewController:sheet animated:YES completion:nil];
+}
+
+%new - (void)vhdDownloadProgress:(float)progress {}
+%new - (void)vhdDownloadDidFinish:(NSURL *)filePath filename:(NSString *)fileName {
+    if ([self.hudFileext isEqualToString:@"mp4"]) {
+        NSURL *videoURL = filePath;
+        [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
+            [PHAssetCreationRequest creationRequestForAssetFromVideoAtFileURL:videoURL];
+        } completionHandler:^(BOOL ok, NSError *err) {
+            [[NSFileManager defaultManager] removeItemAtURL:filePath error:nil];
+            if (ok) [%c(AWEToast) showSuccess:@"Saved"];
+        }];
+    } else if ([self.hudFileext isEqualToString:@"jpeg"] || [self.hudFileext isEqualToString:@"png"]) {
+        UIImage *img = [UIImage imageWithContentsOfFile:filePath.path];
+        if (img) {
+            if ([VHDManager removeWatermark]) img = vhd_cropWatermark(img);
+            UIImage *final = img;
+            [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
+                [PHAssetCreationRequest creationRequestForAssetFromImage:final];
+            } completionHandler:^(BOOL ok, NSError *err) {
+                [[NSFileManager defaultManager] removeItemAtURL:filePath error:nil];
+                if (ok) [%c(AWEToast) showSuccess:@"Saved"];
+            }];
+        }
+    } else {
+        vhd_showSaveMenu(filePath, fileName);
+    }
+    self.hudDownloader = nil;
+}
+%new - (void)vhdDownloadDidFailureWithError:(NSError *)error {
+    self.hudDownloader = nil;
+}
 %end
 
-// ============================================================================
-// Init
-// ============================================================================
+#pragma mark - Detail cell (same pattern)
+%hook AWEAwemeDetailTableViewCell
+%property (nonatomic, strong) VHDDownload *hudDownloader;
+%property (nonatomic, copy)   NSString *hudFileext;
+
+- (void)configWithModel:(id)model {
+    %orig;
+    if ([VHDManager showDownloadButton]) [self vhd_addLongPress];
+}
+- (void)configureWithModel:(id)model {
+    %orig;
+    if ([VHDManager showDownloadButton]) [self vhd_addLongPress];
+}
+
+%new - (void)vhd_addLongPress {
+    static void *kAssociated = &kAssociated;
+    id existing = objc_getAssociatedObject(self, kAssociated);
+    if (existing) return;
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
+    lp.minimumPressDuration = 0.4;
+    objc_setAssociatedObject(self, kAssociated, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self addGestureRecognizer:lp];
+}
+
+%new - (void)vhd_onLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    if (![self.viewController isKindOfClass:%c(AWEAwemeDetailCellViewController)]) return;
+    AWEAwemeDetailCellViewController *vc = (AWEAwemeDetailCellViewController *)self.viewController;
+
+    NSString *desc = vc.model.music_songName ?: @"TikTok";
+    TUXActionSheetController *sheet = [[%c(TUXActionSheetController) alloc] initWithTitle:desc];
+
+    if ([VHDManager saveVideoHD]) {
+        [sheet addAction:[[%c(TUXActionSheetAction) alloc] initWithStyle:0 title:@"Download video"
+                                                                 subtitle:nil image:nil imageLabel:nil
+                                                                  handler:^(TUXActionSheetAction *act) {
+            NSURL *url = [vc.model.video.playURL bestURLtoDownload];
+            self.hudFileext = [vc.model.video.playURL bestURLtoDownloadFormat];
+            if (!url) return;
+            VHDDownload *dw = [VHDDownload new]; dw.delegate = self;
+            self.hudDownloader = dw;
+            [dw downloadFileWithURL:url];
+        }]];
+    }
+
+    [sheet setDismissOnDraggingDown:YES];
+    [self.viewController presentViewController:sheet animated:YES completion:nil];
+}
+
+%new - (void)vhdDownloadProgress:(float)p {}
+%new - (void)vhdDownloadDidFinish:(NSURL *)filePath filename:(NSString *)fileName {
+    [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
+        [PHAssetCreationRequest.creationRequestForAssetFromVideoAtFileURL fileURL];
+    } completionHandler:^(BOOL ok, NSError *err) {
+        [[NSFileManager defaultManager] removeItemAtURL:filePath error:nil];
+        if (ok) [%c(AWEToast) showSuccess:@"Saved"];
+    }];
+    self.hudDownloader = nil;
+}
+%new - (void)vhdDownloadDidFailureWithError:(NSError *)error { self.hudDownloader = nil; }
+%end
+
+#pragma mark - Photo album cells
+%hook TTKPhotoAlbumFeedCellController
+- (void)viewDidLoad {
+    %orig;
+    if ([VHDManager showDownloadButton]) {
+        UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_albumLongPress:)];
+        lp.minimumPressDuration = 0.4;
+        [self.view addGestureRecognizer:lp];
+    }
+}
+
+%new - (void)vhd_albumLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    NSArray *photos = self.model.photoAlbum.photos;
+    if (![photos isKindOfClass:[NSArray class]] || photos.count == 0) return;
+    AWEPhotoAlbumPhoto *first = photos.firstObject;
+    if (![first isKindOfClass:[AWEPhotoAlbumPhoto class]]) return;
+    NSArray *urls = first.originPhotoURL;
+    NSString *urlStr = [urls isKindOfClass:[NSArray class]] ? urls.firstObject : nil;
+    if (![urlStr isKindOfClass:[NSString class]]) return;
+    NSURL *url = [NSURL URLWithString:vhd_cleanURL(urlStr)];
+    if (!url) return;
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (!data) return;
+        UIImage *img = [UIImage imageWithData:data];
+        if ([VHDManager removeWatermark]) img = vhd_cropWatermark(img);
+        if (!img) return;
+        NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.jpg", NSUUID.UUID.UUIDString]];
+        NSData *jpeg = UIImageJPEGRepresentation(img, 0.95);
+        [jpeg writeToFile:tmp atomically:YES];
+        NSURL *tmpURL = [NSURL fileURLWithPath:tmp];
+        [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
+            [PHAssetCreationRequest creationRequestForAssetFromImageAtFileURL:tmpURL];
+        } completionHandler:^(BOOL ok, NSError *err) {
+            [[NSFileManager defaultManager] removeItemAtPath:tmp error:nil];
+            if (ok) [%c(AWEToast) showSuccess:@"Saved"];
+        }];
+    }];
+    [task resume];
+}
+%end
+
+#pragma mark - Jailbreak quarantine
+%hook NSFileManager
+- (BOOL)fileExistsAtPath:(NSString *)path {
+    for (NSString *p in vhd_jailbreakPaths) {
+        if ([path isEqualToString:p]) return NO;
+    }
+    return %orig;
+}
+- (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDir {
+    for (NSString *p in vhd_jailbreakPaths) {
+        if ([path isEqualToString:p]) { if (isDir) *isDir = NO; return NO; }
+    }
+    return %orig;
+}
+%end
+
+%hook BDADeviceHelper
++ (BOOL)isJailBroken { return NO; }
+%end
+
+%hook TTInstallUtil
++ (BOOL)isJailBroken { return NO; }
+%end
+
+%hook AppsFlyerUtils
++ (BOOL)isJailbrokenWithSkipAdvancedJailbreakValidation:(BOOL)arg2 { return NO; }
+%end
+
+%hook IESLiveDeviceInfo
++ (BOOL)isJailBroken { return NO; }
+%end
+
+%hook BDInstallNetworkUtility
++ (BOOL)isJailBroken { return NO; }
+%end
+
+%hook TTAdSplashDeviceHelper
++ (BOOL)isJailBroken { return NO; }
+%end
+
+%hook UIDevice
++ (BOOL)btd_isJailBroken { return NO; }
+%end
+
+%hook GULAppEnvironmentUtil
++ (BOOL)isFromAppStore { return YES; }
++ (BOOL)isAppStoreReceiptSandbox { return NO; }
++ (BOOL)isAppExtension { return YES; }
+%end
+
+%hook NSBundle
+- (NSString *)pathForResource:(NSString *)name ofType:(NSString *)ext {
+    if ([ext isEqualToString:@"mobileprovision"]) return nil;
+    return %orig;
+}
+%end
+
+#pragma mark - Init
 %ctor {
-    NSLog(@"[VHD] ============================================");
-    NSLog(@"[VHD] VibeTokHD v2.0 loaded");
-    NSLog(@"[VHD] Photos HD: %@", VHD_DOWNLOAD_PHOTO ? @"ON" : @"OFF");
-    NSLog(@"[VHD] Videos HD: %@", VHD_DOWNLOAD_VIDEO ? @"ON" : @"OFF");
-    NSLog(@"[VHD] No Watermark: %@", VHD_REMOVE_WATERMARK ? @"ON" : @"OFF");
-    NSLog(@"[VHD] ============================================");
+    vhd_jailbreakPaths = @[
+        @"/Applications/Cydia.app", @"/Applications/Sileo.app", @"/Applications/Zebra.app",
+        @"/Library/MobileSubstrate/MobileSubstrate.dylib",
+        @"/usr/libexec/cydia/firmware.sh", @"/usr/bin/ssh", @"/usr/sbin/sshd",
+        @"/var/lib/cydia", @"/var/log/apt", @"/var/cache/apt",
+        @"/etc/apt", @"/jb/jailbreakd.plist", @"/usr/lib/libjailbreak.dylib",
+        @"/private/var/lib/apt", @"/private/var/stash",
+        @"/bin/bash", @"/bin/sh"
+    ];
+    %init;
 }

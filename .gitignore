@@ -1,4 +1,10 @@
+﻿# Build dirs
+.theos/
+packages/
 *.deb
-*.o
-*.bak
-.DS_Store
+*.dylib
+*.bundle
+*.app
+*.ipa
+build/
+DerivedData/

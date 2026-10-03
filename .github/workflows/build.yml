@@ -12,11 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Theos
+      - name: Install Theos + ldid
         run: |
-          # Theos - jailbreak dev toolkit
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          # Install ldid for code signing
+          brew install ldid 2>&1 | tail -5 || echo "brew install failed, trying alternate"
+          # Alternate: try downloading ldid binary directly
+          if ! command -v ldid &>/dev/null; then
+            curl -L -o $HOME/ldid https://github.com/ProcursusTeam/Procursus/raw/main/misc/ldid
+            chmod +x $HOME/ldid
+            echo "PATH=$HOME:$PATH" >> $GITHUB_ENV
+          fi
+          ldid 2>&1 || echo "ldid status check"
 
       - name: Build package
         run: |

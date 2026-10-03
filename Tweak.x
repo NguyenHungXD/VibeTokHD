@@ -116,6 +116,35 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 
 - (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
 - (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }
+
+#pragma mark - Origin photo list override (HD / no watermark)
+- (NSArray *)originPhotoURL {
+    NSArray *original = %orig;
+    if (![original isKindOfClass:[NSArray class]]) return original;
+    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
+    for (id u in original) {
+        if ([u isKindOfClass:[NSString class]]) {
+            [fixed addObject:vhd_cleanURL(u)];
+        } else {
+            [fixed addObject:u];
+        }
+    }
+    return fixed;
+}
+
+- (NSArray *)originURLList {
+    NSArray *original = %orig;
+    if (![original isKindOfClass:[NSArray class]]) return original;
+    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
+    for (id u in original) {
+        if ([u isKindOfClass:[NSString class]]) {
+            [fixed addObject:vhd_cleanURL(u)];
+        } else {
+            [fixed addObject:u];
+        }
+    }
+    return fixed;
+}
 %end
 
 #pragma mark - Clean URLs returned to callers (HD downloads)
@@ -144,39 +173,6 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
     }
     return @"mp4";
 }
-%end
-
-#pragma mark - Origin photo list override (HD / no watermark)
-%hook AWEAwemeModel
-
-- (NSArray *)originPhotoURL {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) {
-            [fixed addObject:vhd_cleanURL(u)];
-        } else {
-            [fixed addObject:u];
-        }
-    }
-    return fixed;
-}
-
-- (NSArray *)originURLList {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) {
-            [fixed addObject:vhd_cleanURL(u)];
-        } else {
-            [fixed addObject:u];
-        }
-    }
-    return fixed;
-}
-
 %end
 
 #pragma mark - Feed Cell: long-press menu (download / copy)

@@ -103,7 +103,7 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 }
 
 - (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
-- (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }
+- (BOOL)progressBarVisible { return [VHDManager progressBar] || %orig; }
 %end
 
 #pragma mark - Clean URLs returned to callers (HD downloads)

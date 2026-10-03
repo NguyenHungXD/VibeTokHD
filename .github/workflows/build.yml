@@ -74,33 +74,99 @@ jobs:
       - name: Inject tweak into IPA
         run: |
           cd ${{ github.workspace }}/build
+
+          # Get info on the original IPA structure
+          echo "=== Original IPA structure ==="
+          unzip -l TikTok.ipa | head -10
+          echo "..."
+
+          # Method 1: Use zip's update feature to add dylib to existing ZIP
+          # This preserves the original compression and file structure
+
+          # First copy dylib to a temp location
+          DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
+          ls -la "$DYLIB_PATH"
+
+          # Extract just the dylib into a working directory
+          mkdir -p Frameworks
+          cp "$DYLIB_PATH" Frameworks/VibeTok.dylib
+          ls -la Frameworks/
+
+          # Sign the dylib
+          codesign --force --sign - Frameworks/VibeTok.dylib
+
+          # Use zip update: copy IPA, add dylib to it
+          # This preserves the original ZIP structure
+          cp TikTok.ipa VibeTokHD-signed.ipa
+
+          # Add dylib to existing ZIP (preserves original compression)
+          # -X strips extra attributes, -r recursive, -0 store
+          zip -X -0 VibeTokHD-signed.ipa Frameworks/VibeTok.dylib
+
+          # But this puts Frameworks/ at root, not inside Payload/TikTok.app/Frameworks/
+          # We need to delete and re-add with correct path
+
+          # Method 2: Properly re-zip with directory structure
+          rm VibeTokHD-signed.ipa
+          rm -rf extracted
+
+          # Extract original
           unzip -q TikTok.ipa -d extracted
 
-          # Copy dylib to Frameworks
-          DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
+          # Inject dylib
           mkdir -p "extracted/Payload/TikTok.app/Frameworks"
-          cp "$DYLIB_PATH" "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
+          cp Frameworks/VibeTok.dylib "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
 
-          # Ad-hoc sign dylib
-          codesign --force --sign - "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib" || true
-
-          # Verify the dylib was injected
-          ls -la "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
-
-          # Re-zip into IPA using STORE mode (no compression) - iOS requirement
-          # -0 = store only, preserves original byte-for-byte integrity
+          # Re-zip using COPY method (no recompression)
+          # -0 = store only, -X = strip extras
           cd extracted
-          zip -q -r -0 ../VibeTokHD-signed.ipa Payload/
+          # Use Python's zipfile to preserve everything
+          python3 -c "
+          import zipfile
+          import os
+
+          out_zip = '../VibeTokHD-signed.ipa'
+
+          # Read original IPA to preserve compression info
+          with zipfile.ZipFile('../../TikTok.ipa', 'r') as orig:
+              with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_STORED) as out:
+                  for item in orig.infolist():
+                      # Read file from extracted dir
+                      file_path = os.path.join('.', item.filename)
+                      if os.path.exists(file_path):
+                          with open(file_path, 'rb') as f:
+                              data = f.read()
+                          # Preserve original info but allow VibeTok.dylib
+                          new_info = zipfile.ZipInfo(item.filename, date_time=item.date_time)
+                          new_info.compress_type = item.compress_type
+                          new_info.external_attr = item.external_attr
+                          out.writestr(new_info, data)
+                      else:
+                          print(f'Warning: missing {item.filename}')
+
+                  # Add VibeTok.dylib
+                  vhd_path = 'Payload/TikTok.app/Frameworks/VibeTok.dylib'
+                  if os.path.exists(vhd_path):
+                      with open(vhd_path, 'rb') as f:
+                          data = f.read()
+                      new_info = zipfile.ZipInfo(vhd_path, date_time=(2026, 10, 3, 0, 0, 0))
+                      new_info.compress_type = zipfile.ZIP_STORED
+                      out.writestr(new_info, data)
+                      print(f'Added {vhd_path}')
+
+          print('Done!')
+          "
           cd ..
 
           echo "=== File sizes ==="
-          ls -la
-          echo ""
+          ls -la *.ipa
+
           echo "=== Verify integrity ==="
-          # Check that the zip is valid IPA
           file VibeTokHD-signed.ipa
-          # Quick verification - the file should still be a valid ZIP
           unzip -t VibeTokHD-signed.ipa | tail -3
+
+          # Check that VibeTok.dylib is inside
+          unzip -l VibeTokHD-signed.ipa | grep VibeTok
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

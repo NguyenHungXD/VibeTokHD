@@ -61,8 +61,12 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 - (void)recordFeedRequest:(NSString *)url;
 @end
 
-// Forward decl for VHDFloatingPanel used in VHDAutoSwipeEngine.onFeedExhausted:
-@class VHDFloatingPanel;
+// Minimal forward declaration of VHDFloatingPanel with just the method we need
+// (Full @interface follows later in this file)
+@interface VHDFloatingPanel (Forward)
++ (instancetype)shared;
+- (void)onFeedExhausted;
+@end
 
 @implementation VHDFeedTracker
 + (instancetype)shared {

@@ -61,9 +61,15 @@ jobs:
           fi
           mkdir -p ${{ github.workspace }}/build
           cd ${{ github.workspace }}/build
+          echo "Downloading from: $VIBETOK_IPA_URL"
           curl -L -o TikTok.ipa "$VIBETOK_IPA_URL"
+          echo "=== Downloaded file ==="
           ls -la
           file TikTok.ipa
+          # Verify it is a valid IPA (iOS App Zip)
+          if ! file TikTok.ipa | grep -q "iOS App Zip"; then
+            echo "WARNING: Downloaded file may not be a valid IPA"
+          fi
 
       - name: Inject tweak into IPA
         run: |
@@ -78,11 +84,23 @@ jobs:
           # Ad-hoc sign dylib
           codesign --force --sign - "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib" || true
 
-          # Re-zip into IPA
+          # Verify the dylib was injected
+          ls -la "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
+
+          # Re-zip into IPA using STORE mode (no compression) - iOS requirement
+          # -0 = store only, preserves original byte-for-byte integrity
           cd extracted
-          zip -qr ../VibeTokHD-signed.ipa Payload/
+          zip -q -r -0 ../VibeTokHD-signed.ipa Payload/
           cd ..
+
+          echo "=== File sizes ==="
           ls -la
+          echo ""
+          echo "=== Verify integrity ==="
+          # Check that the zip is valid IPA
+          file VibeTokHD-signed.ipa
+          # Quick verification - the file should still be a valid ZIP
+          unzip -t VibeTokHD-signed.ipa | tail -3
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

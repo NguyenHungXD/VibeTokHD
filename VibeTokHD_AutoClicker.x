@@ -9,6 +9,10 @@
 //  - Lưu/tải profile macro qua NSUserDefaults
 //  - Activation gesture: 3-finger tap để hiện panel
 
+// Forward declarations
+@class VHDFeedTracker;
+@class VHDFloatingPanel;
+
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <substrate.h>
@@ -72,7 +76,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 - (void)stop;
 - (void)performSwipe;
 - (NSString *)screenSnapshotHash;
-- (void)checkFeedEnd;
+- (void)checkFeedEndWithBefore:(NSString *)beforeHash;
 @end
 
 @implementation VHDAutoSwipeEngine
@@ -170,13 +174,14 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 - (NSString *)md5:(NSString *)s {
     if (!s) return @"";
     const char *cstr = [s UTF8String];
-    unsigned char digest[CC_MD5_DIGEST_LENGTH];
-    CC_MD5(cstr, (CC_LONG)strlen(cstr), digest);
-    NSMutableString *out = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(cstr, (CC_LONG)strlen(cstr), digest);
+    NSMutableString *out = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) {
         [out appendFormat:@"%02x", digest[i]];
     }
-    return out;
+    // Truncate to 32 chars for storage efficiency
+    return [out substringToIndex:MIN(32, (int)[out length])];
 }
 
 // Strategy 2: View hierarchy snapshot
@@ -298,7 +303,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
     // Check feed end after short delay (let UI settle)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.6 * NSEC_PER_SEC),
         dispatch_get_main_queue(), ^{
-        [self checkFeedEnd:beforeHash];
+        [self checkFeedEndWithBefore:beforeHash];
     });
 
     // Reschedule with new random delay
@@ -311,7 +316,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
                                                   repeats:YES];
 }
 
-- (void)checkFeedEnd:(NSString *)beforeHash {
+- (void)checkFeedEndWithBefore:(NSString *)beforeHash {
     if (!self.enabled || !self.stopWhenFeedEnds) return;
 
     BOOL changed = [self viewTreeChanged:beforeHash];
@@ -573,6 +578,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 @property (nonatomic, strong) UILabel *stopOnEndLabel;
 @property (nonatomic, assign) CGPoint panelTouchOffset;
 - (void)onFeedExhausted;
+- (void)recTap; // dummy for associated object key
 @end
 
 @implementation VHDFloatingPanel
@@ -819,7 +825,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
                         tap.delaysTouchesBegan = NO;
                         [w addGestureRecognizer:tap];
                         // Save reference to remove later
-                        objc_setAssociatedObject(self, "recTap", tap, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                        objc_setAssociatedObject(self, @selector(recTap), tap, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                         break;
                     }
                 }
@@ -830,9 +836,9 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 }
 
 - (void)handleRecordedTap:(UITapGestureRecognizer *)gr {
-    UITapGestureRecognizer *orig = objc_getAssociatedObject(self, "recTap");
+    UITapGestureRecognizer *orig = objc_getAssociatedObject(self, @selector(recTap));
     if (orig) [gr.view removeGestureRecognizer:orig];
-    objc_setAssociatedObject(self, "recTap", nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(recTap), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     CGPoint pt = [gr locationInView:gr.view];
     NSMutableArray *arr = [[[[NSUserDefaults standardUserDefaults]

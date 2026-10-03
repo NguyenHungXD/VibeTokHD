@@ -18,6 +18,8 @@ jobs:
           git clone --recursive --depth=1 https://github.com/theos/theos.git ${{ github.workspace }}/theos
           echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
           echo "PATH=${{ github.workspace }}/theos/bin:$PATH" >> $GITHUB_ENV
+          # Install ldid for signing
+          brew install ldid
           ls ${{ github.workspace }}/theos/
           ${{ github.workspace }}/theos/bin/nic.pl --help 2>&1 | head -3
 

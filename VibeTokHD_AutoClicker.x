@@ -61,12 +61,8 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 - (void)recordFeedRequest:(NSString *)url;
 @end
 
-// Minimal forward declaration of VHDFloatingPanel with just the method we need
-// (Full @interface follows later in this file)
-@interface VHDFloatingPanel (Forward)
-+ (instancetype)shared;
-- (void)onFeedExhausted;
-@end
+// Forward decl - we use VHDFloatingPanel only for messaging (not access)
+@class VHDFloatingPanel;
 
 @implementation VHDFeedTracker
 + (instancetype)shared {
@@ -386,7 +382,11 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
     self.feedExhausted = YES;
     vhd_ac_log(@"🔥 FEED EXHAUSTED: %@ (total swipes: %ld)", reason, (long)self.totalSwipes);
     [self stop];
-    [[VHDFloatingPanel shared] onFeedExhausted];
+    // Notify via NSNotificationCenter (avoids forward-decl issues)
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:@"VHDACFeedExhausted"
+                      object:nil
+                    userInfo:@{@"reason": reason ?: @"unknown"}];
 }
 
 - (void)synthesizeSwipeFrom:(CGPoint)from to:(CGPoint)to in:(UIWindow *)window {
@@ -612,6 +612,13 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 
 - (void)buildUI {
     [self.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+
+    // Subscribe to feed-exhausted notification (avoids forward-decl dependency)
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(onFeedExhausted)
+               name:@"VHDACFeedExhausted"
+             object:nil];
 
     // Main floating button
     self.mainButton = [UIButton buttonWithType:UIButtonTypeSystem];

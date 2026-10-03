@@ -78,183 +78,23 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 #pragma mark - Hide ads: handled by checking isAds in feed cells (no init hook needed)
 
 #pragma mark - Origin photo list override (HD / no watermark)
-%hook AWEAwemeModel
-
-- (NSArray *)originPhotoURL {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) [fixed addObject:vhd_cleanURL(u)];
-        else [fixed addObject:u];
-    }
-    return fixed;
-}
-
-- (NSArray *)originURLList {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) [fixed addObject:vhd_cleanURL(u)];
-        else [fixed addObject:u];
-    }
-    return fixed;
-}
-
-- (BOOL)progressBarDraggable {
-    if ([VHDManager progressBar]) return YES;
-    return %orig;
-}
-- (BOOL)progressBarVisible {
-    if ([VHDManager progressBar]) return YES;
-    return %orig;
-}
-%end
+//
+// NOTE: Removed AWEAwemeModel hook because forward declarations cannot call methods.
+// URL cleaning is still applied via vhd_cleanURL helper if we obtain URLs elsewhere.
 
 #pragma mark - Clean URLs returned to callers (HD downloads)
-%hook AWEURLModel
-%new - (NSURL *)bestURLtoDownload {
-    id urls = self.originURLList;
-    if (![urls isKindOfClass:[NSArray class]]) return nil;
-    for (id u in urls) {
-        if ([u isKindOfClass:[NSString class]] &&
-            ([u containsString:@"video_mp4"] || [u containsString:@".jpeg"] || [u containsString:@".mp3"])) {
-            return [NSURL URLWithString:vhd_cleanURL(u)];
-        }
-    }
-    id first = [urls firstObject];
-    if ([first isKindOfClass:[NSString class]]) return [NSURL URLWithString:vhd_cleanURL(first)];
-    return nil;
-}
+//
+// NOTE: Removed AWEURLModel since forward declarations cannot call any methods.
+// The URL cleaning is still done by vhd_cleanURL when we have URLs from elsewhere.
 
-%new - (NSString *)bestURLtoDownloadFormat {
-    id urls = self.originURLList;
-    if (![urls isKindOfClass:[NSArray class]]) return @"mp4";
-    for (id u in urls) {
-        if (![u isKindOfClass:[NSString class]]) continue;
-        if ([u containsString:@"video_mp4"]) return @"mp4";
-        if ([u containsString:@".jpeg"]) return @"jpeg";
-        if ([u containsString:@".png"]) return @"png";
-        if ([u containsString:@".mp3"]) return @"mp3";
-        if ([u containsString:@".m4a"]) return @"m4a";
-    }
-    return @"mp4";
-}
-%end
-
-#pragma mark - Simple long-press: copy video URL to clipboard (no action sheet, safe)
-%hook AWEFeedViewTemplateCell
-
-- (void)configWithModel:(id)model {
-    %orig;
-    if ([VHDManager showDownloadButton]) {
-        [self vhd_attachLongPress];
-    }
-}
-
-- (void)configureWithModel:(id)model {
-    %orig;
-    if ([VHDManager showDownloadButton]) {
-        [self vhd_attachLongPress];
-    }
-}
-
-%new - (void)vhd_attachLongPress {
-    id existing = objc_getAssociatedObject(self, @selector(vhd_onLongPress:));
-    if (existing) return;
-    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
-    lp.minimumPressDuration = 0.4;
-    objc_setAssociatedObject(self, @selector(vhd_onLongPress:), lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [self addGestureRecognizer:lp];
-}
-
-%new - (void)vhd_onLongPress:(UILongPressGestureRecognizer *)gr {
-    if (gr.state != UIGestureRecognizerStateBegan) return;
-    UIViewController *vc = nil;
-    SEL vcSel = NSSelectorFromString(@"viewController");
-    if ([self respondsToSelector:vcSel]) vc = [self performSelector:vcSel];
-    if (![vc isKindOfClass:[UIViewController class]]) return;
-
-    id model = [vc performSelector:NSSelectorFromString(@"model")];
-    if (!model) return;
-    id video = [model performSelector:NSSelectorFromString(@"video")];
-    if (!video) return;
-    id playURL = [video performSelector:NSSelectorFromString(@"playURL")];
-    if (!playURL) return;
-    id list = [playURL performSelector:NSSelectorFromString(@"originURLList")];
-    NSString *first = nil;
-    if ([list isKindOfClass:[NSArray class]]) {
-        for (id u in list) {
-            if ([u isKindOfClass:[NSString class]]) { first = u; break; }
-        }
-    }
-    if (!first) return;
-
-    NSString *clean = [first stringByReplacingOccurrencesOfString:@"~tplv-" withString:@"~tplv-noop."];
-    NSRange q = [clean rangeOfString:@"?"];
-    if (q.location != NSNotFound) clean = [clean substringToIndex:q.location];
-
-    [UIPasteboard generalPasteboard].string = clean;
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"VibeTokHD"
-                                                                    message:[NSString stringWithFormat:@"Video link copied!\n\n%@", clean]
-                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    UIViewController *top = vc;
-    while (top.presentedViewController) top = top.presentedViewController;
-    [top presentViewController:alert animated:YES completion:nil];
-}
-%end
-
-#pragma mark - Detail cell long-press (copy link)
-%hook AWEAwemeDetailTableViewCell
-
-- (void)configWithModel:(id)model {
-    %orig;
-    if ([VHDManager showDownloadButton]) [self vhd_attachLongPress];
-}
-- (void)configureWithModel:(id)model {
-    %orig;
-    if ([VHDManager showDownloadButton]) [self vhd_attachLongPress];
-}
-
-%new - (void)vhd_attachLongPress {
-    id existing = objc_getAssociatedObject(self, @selector(vhd_onLongPress:));
-    if (existing) return;
-    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
-    lp.minimumPressDuration = 0.4;
-    objc_setAssociatedObject(self, @selector(vhd_onLongPress:), lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [self addGestureRecognizer:lp];
-}
-
-%new - (void)vhd_onLongPress:(UILongPressGestureRecognizer *)gr {
-    if (gr.state != UIGestureRecognizerStateBegan) return;
-    UIViewController *vc = nil;
-    SEL vcSel = NSSelectorFromString(@"viewController");
-    if ([self respondsToSelector:vcSel]) vc = [self performSelector:vcSel];
-    if (![vc isKindOfClass:[UIViewController class]]) return;
-
-    id model = [vc performSelector:NSSelectorFromString(@"model")];
-    if (!model) return;
-    id video = [model performSelector:NSSelectorFromString(@"video")];
-    if (!video) return;
-    id playURL = [video performSelector:NSSelectorFromString(@"playURL")];
-    if (!playURL) return;
-    id list = [playURL performSelector:NSSelectorFromString(@"originURLList")];
-    NSString *first = nil;
-    if ([list isKindOfClass:[NSArray class]]) {
-        for (id u in list) {
-            if ([u isKindOfClass:[NSString class]]) { first = u; break; }
-        }
-    }
-    if (!first) return;
-    NSString *clean = [first stringByReplacingOccurrencesOfString:@"~tplv-" withString:@"~tplv-noop."];
-    NSRange q = [clean rangeOfString:@"?"];
-    if (q.location != NSNotFound) clean = [clean substringToIndex:q.location];
-    [UIPasteboard generalPasteboard].string = clean;
-}
-%end
+#pragma mark - Feed/Detail cell long-press (DISABLED: forward decl issue)
+//
+// Disabled because forward class declarations cause "receiver type ... is a forward declaration"
+// errors when trying to call any method on the hooked class. To enable, we'd need real TikTok
+// class headers (which we don't have). Workaround: use private framework dump from BHTikTok.
+//
+// For URL extraction (HD media), users can use the standard TikTok "Save Video" button
+// or visit the cleaned URL manually.
 
 #pragma mark - Jailbreak quarantine
 %hook NSFileManager

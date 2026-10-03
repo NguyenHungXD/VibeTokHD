@@ -78,35 +78,20 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 #pragma mark - Hide ads: handled by checking isAds in feed cells (no init hook needed)
 
 #pragma mark - Origin photo list override (HD / no watermark)
+static NSArray *vh_cleanURLArray(NSArray *arr) {
+    if (![arr isKindOfClass:[NSArray class]]) return arr;
+    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:arr.count];
+    for (id u in arr) {
+        [fixed addObject:([u isKindOfClass:[NSString class]] ? vhd_cleanURL(u) : u)];
+    }
+    return fixed;
+}
+
 %hook AWEAwemeModel
 
-- (NSArray *)originPhotoURL {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) {
-            [fixed addObject:vhd_cleanURL(u)];
-        } else {
-            [fixed addObject:u];
-        }
-    }
-    return fixed;
-}
+- (NSArray *)originPhotoURL { return vh_cleanURLArray(%orig); }
 
-- (NSArray *)originURLList {
-    NSArray *original = %orig;
-    if (![original isKindOfClass:[NSArray class]]) return original;
-    NSMutableArray *fixed = [NSMutableArray arrayWithCapacity:original.count];
-    for (id u in original) {
-        if ([u isKindOfClass:[NSString class]]) {
-            [fixed addObject:vhd_cleanURL(u)];
-        } else {
-            [fixed addObject:u];
-        }
-    }
-    return fixed;
-}
+- (NSArray *)originURLList { return vh_cleanURLArray(%orig); }
 
 - (BOOL)progressBarDraggable { return [VHDManager progressBar] || %orig; }
 - (BOOL)progressBarVisible   { return [VHDManager progressBar] || %orig; }

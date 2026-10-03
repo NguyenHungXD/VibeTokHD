@@ -56,10 +56,13 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 @property (nonatomic, assign) NSInteger swipesSinceLastRequest;
 @property (nonatomic, assign) NSInteger totalFeedRequests;
 @property (nonatomic, copy)   NSDate *lastFeedRequestTime;
-@property (nonatomic, assign) BOOL noNewContentSinceLastN;
+- (BOOL)noNewContentSinceLastN;
 + (instancetype)shared;
 - (void)recordFeedRequest:(NSString *)url;
 @end
+
+// Forward decl for VHDFloatingPanel used in VHDAutoSwipeEngine.onFeedExhausted:
+@class VHDFloatingPanel;
 
 @implementation VHDFeedTracker
 + (instancetype)shared {
@@ -270,7 +273,7 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
 - (BOOL)detectNoNewContentRequest {
     // If hook hasn't received new feed request in last N swipes, assume exhausted
     // This is updated by VHDFeedTracker (defined later)
-    return [VHDFeedTracker shared].noNewContentSinceLastN;
+    return [[VHDFeedTracker shared] noNewContentSinceLastN];
 }
 
 // =========================================================================
@@ -836,8 +839,13 @@ static NSString *const kVHD_AC_ActivationType = @"VHD_AC_ActivationType";  // 0=
     objc_setAssociatedObject(self, @selector(recTap), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     CGPoint pt = [gr locationInView:gr.view];
-    NSMutableArray *arr = [[[[NSUserDefaults standardUserDefaults]
-        arrayForKey:kVHD_AC_ClickPoints] mutableCopy] ?: [NSMutableArray array]];
+    NSArray *existing = [[NSUserDefaults standardUserDefaults] arrayForKey:kVHD_AC_ClickPoints];
+    NSMutableArray *arr;
+    if ([existing isKindOfClass:[NSArray class]]) {
+        arr = [existing mutableCopy];
+    } else {
+        arr = [NSMutableArray array];
+    }
     [arr addObject:@{@"x":@(pt.x), @"y":@(pt.y), @"interval":@(1000)}];
     [[NSUserDefaults standardUserDefaults] setObject:arr forKey:kVHD_AC_ClickPoints];
 

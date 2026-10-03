@@ -1,8 +1,8 @@
 Package: com.6gr8.vibetokhd
 Name: VibeTokHD
-Version: 1.0
+Version: 2.0
 Architecture: iphoneos-arm
-Description: HD photos for VibeTok - use originPhotoURL
+Description: HD photos + Auto Swipe/Click for VibeTok
 Maintainer: 6gr8
 Author: 6gr8
 Section: Tweaks

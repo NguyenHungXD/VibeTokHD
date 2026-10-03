@@ -6,9 +6,9 @@ ARCHS = arm64 arm64e
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = VibeTokHD
-VibeTokHD_FILES = Tweak.x
+VibeTokHD_FILES = Tweak.x VibeTokHD_AutoClicker.x
 # Disable Werror to allow unused functions
 VibeTokHD_CFLAGS = -fobjc-arc -Wno-unused-function -Wno-unused-variable
-VibeTokHD_LDFLAGS = -framework UIKit -framework Foundation -framework Photos
+VibeTokHD_LDFLAGS = -framework UIKit -framework Foundation -framework Photos -framework CoreGraphics
 
 include $(THEOS)/makefiles/tweak.mk

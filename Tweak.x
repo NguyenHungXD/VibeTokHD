@@ -75,40 +75,6 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 }
 %end
 
-#pragma mark - Settings entry
-%hook AWESettingsNormalSectionViewModel
-- (void)viewDidLoad {
-    %orig;
-    if ([self.sectionIdentifier isEqualToString:@"account"]) {
-        TTKSettingsBaseCellPlugin *plugin = [[%c(TTKSettingsBaseCellPlugin) alloc] initWithPluginContext:self.context];
-        AWESettingItemModel *item = [[%c(AWESettingItemModel) alloc] initWithIdentifier:@"vhd_settings"];
-        [item setTitle:@"VibeTokHD"];
-        [item setDetail:@"Settings"];
-        [item setIconImage:[UIImage systemImageNamed:@"bolt.fill"]];
-        [item setType:99];
-        [plugin setItemModel:item];
-        [self insertModel:plugin atIndex:0 animated:YES];
-    }
-}
-%end
-
-%hook TTKSettingsBaseCellPlugin
-- (void)didSelectItemAtIndex:(NSInteger)index {
-    if ([self.itemModel.identifier isEqualToString:@"vhd_settings"]) {
-        // Minimal: just confirm
-        [%c(AWEUIAlertView) showAlertWithTitle:@"VibeTokHD"
-                                   description:@"Enabled. Long-press a video to download."
-                                         image:nil
-                              actionButtonTitle:@"OK"
-                               cancelButtonTitle:nil
-                                     actionBlock:nil
-                                      cancelBlock:nil];
-    } else {
-        %orig;
-    }
-}
-%end
-
 #pragma mark - Hide ads (drop ad models)
 %hook AWEAwemeModel
 - (id)initWithDictionary:(NSDictionary *)arg1 error:(NSError **)arg2 {
@@ -155,7 +121,8 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 %end
 
 #pragma mark - Origin photo list override (HD / no watermark)
-%hook AWEAwemeModel (Attributes)
+%hook AWEAwemeModel
+
 - (NSArray *)originPhotoURL {
     NSArray *original = %orig;
     if (![original isKindOfClass:[NSArray class]]) return original;
@@ -183,6 +150,7 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
     }
     return fixed;
 }
+
 %end
 
 #pragma mark - Feed Cell: long-press menu (download / copy)
@@ -206,12 +174,11 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 }
 
 %new - (void)vhd_addLongPress {
-    static void *kAssociated = &kAssociated;
-    id existing = objc_getAssociatedObject(self, kAssociated);
+    UILongPressGestureRecognizer *existing = (UILongPressGestureRecognizer *)objc_getAssociatedObject(self, @selector(vhd_onLongPress:));
     if (existing) return;
     UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
     lp.minimumPressDuration = 0.4;
-    objc_setAssociatedObject(self, kAssociated, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(vhd_onLongPress:), lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self addGestureRecognizer:lp];
 }
 
@@ -349,12 +316,11 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 }
 
 %new - (void)vhd_addLongPress {
-    static void *kAssociated = &kAssociated;
-    id existing = objc_getAssociatedObject(self, kAssociated);
+    UILongPressGestureRecognizer *existing = (UILongPressGestureRecognizer *)objc_getAssociatedObject(self, @selector(vhd_onLongPress:));
     if (existing) return;
     UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(vhd_onLongPress:)];
     lp.minimumPressDuration = 0.4;
-    objc_setAssociatedObject(self, kAssociated, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(vhd_onLongPress:), lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self addGestureRecognizer:lp];
 }
 

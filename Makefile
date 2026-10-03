@@ -7,10 +7,8 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = VibeTokHD
 VibeTokHD_FILES = Tweak.x
-VibeTokHD_CFLAGS = -fobjc-arc
+# Disable Werror to allow unused functions
+VibeTokHD_CFLAGS = -fobjc-arc -Wno-unused-function -Wno-unused-variable
+VibeTokHD_LDFLAGS = -framework UIKit -framework Foundation -framework Photos
 
 include $(THEOS)/makefiles/tweak.mk
-
-# Build IPA directly
-package::
-	@echo "Building VibeTokHD package..."

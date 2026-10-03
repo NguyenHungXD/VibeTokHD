@@ -17,14 +17,21 @@ jobs:
         run: |
           git clone --recursive --depth=1 https://github.com/theos/theos.git ${{ github.workspace }}/theos
           echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
-          export PATH=$THEOS/bin:$PATH
+          echo "PATH=${{ github.workspace }}/theos/bin:$PATH" >> $GITHUB_ENV
+          ls ${{ github.workspace }}/theos/
+          ${{ github.workspace }}/theos/bin/nic.pl --help 2>&1 | head -3
 
       - name: Build dylib
         run: |
           cd ${{ github.workspace }}
+          export THEOS=${{ github.workspace }}/theos
+          export PATH=$THEOS/bin:$PATH
+          # Build tweak
           make package FINALPACKAGE=1
+          echo "Make exit: $?"
           ls -la
           find . -name "*.dylib" 2>/dev/null
+          find . -name "*.deb" 2>/dev/null
 
       - name: Find dylib
         id: find_dylib
@@ -33,6 +40,10 @@ jobs:
           DYLIB=$(find . -name "VibeTokHD.dylib" 2>/dev/null | head -1)
           if [ -z "$DYLIB" ]; then
             echo "ERROR: VibeTokHD.dylib not found"
+            echo "Looking for any dylib..."
+            find . -name "*.dylib" 2>/dev/null
+            echo "Looking for any deb..."
+            find . -name "*.deb" 2>/dev/null
             exit 1
           fi
           echo "DYLIB=$DYLIB" >> $GITHUB_OUTPUT
@@ -44,7 +55,6 @@ jobs:
         run: |
           if [ -z "$VIBETOK_IPA_URL" ]; then
             echo "ERROR: VIBETOK_IPA_URL secret not set"
-            echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
           mkdir -p ${{ github.workspace }}/build
@@ -58,26 +68,15 @@ jobs:
           cd ${{ github.workspace }}/build
           unzip -q TikTok.ipa -d extracted
 
-          # Patch Info.plist if needed (add Substrate filter)
-          PLIST="extracted/Payload/TikTok.app/Info.plist"
-          if [ -f "$PLIST" ]; then
-            echo "Patching Info.plist..."
-            # Add Substrate filter via PlistBuddy (macOS only)
-            /usr/libexec/PlistBuddy -c "Add :LSEnvironment:MobileSubstrate  string true" "$PLIST" 2>/dev/null || true
-          fi
-
-          # Copy dylib
+          # Copy dylib to Frameworks
           DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
           mkdir -p "extracted/Payload/TikTok.app/Frameworks"
           cp "$DYLIB_PATH" "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
 
-          # Show structure
-          ls -la extracted/Payload/TikTok.app/Frameworks/
+          # Ad-hoc sign dylib
+          codesign --force --sign - "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib" || true
 
-          # Sign the dylib (ad-hoc)
-          codesign --force --sign - "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
-
-          # Re-zip
+          # Re-zip into IPA
           cd extracted
           zip -qr ../VibeTokHD-signed.ipa Payload/
           cd ..
@@ -92,17 +91,8 @@ jobs:
           retention-days: 7
 
       - name: Build summary
-        if: success()
+        if: always()
         run: |
           echo "========================================"
-          echo "BUILD SUCCESSFUL"
+          echo "Build process completed"
           echo "========================================"
-          echo ""
-          echo "Download VibeTokHD-IPA from:"
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo ""
-          echo "Install via:"
-          echo "  - Sideloadly (Windows): kéo IPA vào, đăng nhập Apple ID"
-          echo "  - AltStore (iPhone): install qua My Apps"
-          echo "  - TrollStore (nếu iOS 15+)"
-          echo ""

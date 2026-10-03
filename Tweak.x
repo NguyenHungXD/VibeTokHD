@@ -109,20 +109,23 @@ static void vhd_showSaveMenu(id media, NSString *defaultFilename) {
 #pragma mark - Clean URLs returned to callers (HD downloads)
 %hook AWEURLModel
 %new - (NSURL *)bestURLtoDownload {
-    NSArray *urls = self.originURLList;
-    for (NSString *u in urls) {
+    id urls = self.originURLList;
+    if (![urls isKindOfClass:[NSArray class]]) return nil;
+    for (id u in urls) {
         if ([u isKindOfClass:[NSString class]] &&
             ([u containsString:@"video_mp4"] || [u containsString:@".jpeg"] || [u containsString:@".mp3"])) {
             return [NSURL URLWithString:vhd_cleanURL(u)];
         }
     }
-    id first = urls.firstObject;
+    id first = [urls firstObject];
     if ([first isKindOfClass:[NSString class]]) return [NSURL URLWithString:vhd_cleanURL(first)];
     return nil;
 }
 
 %new - (NSString *)bestURLtoDownloadFormat {
-    for (NSString *u in self.originURLList) {
+    id urls = self.originURLList;
+    if (![urls isKindOfClass:[NSArray class]]) return @"mp4";
+    for (id u in urls) {
         if (![u isKindOfClass:[NSString class]]) continue;
         if ([u containsString:@"video_mp4"]) return @"mp4";
         if ([u containsString:@".jpeg"]) return @"jpeg";

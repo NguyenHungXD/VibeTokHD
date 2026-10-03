@@ -27,7 +27,7 @@ static void vhd_log(NSString *fmt, ...) {
 #if VHD_LOG_LEVEL >= 1
     va_list args;
     va_start(args, fmt);
-    NSLog(@"[VHD] " fmt, args);
+    NSLog([NSString stringWithFormat:@"[VHD] %@", fmt], args);
     va_end(args);
 #endif
 }
@@ -87,7 +87,6 @@ static UIImage *vhd_cropWatermark(UIImage *original) {
     if (!original) return original;
     CGSize size = [original size];
     CGFloat cropW = size.width * 0.08;
-    CGFloat cropH = size.height * 0.12;
     CGRect keepRect = CGRectMake(0, 0, size.width - cropW, size.height);
     CGImageRef keepImage = CGImageCreateWithImageInRect([original CGImage], keepRect);
     UIImage *cropped = [UIImage imageWithCGImage:keepImage scale:[original scale] orientation:[original imageOrientation]];

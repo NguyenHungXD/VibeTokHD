@@ -1,110 +1,32 @@
-name: Build Full IPA
+name: Build VibeTokHD Package
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Theos
+      - name: Install Theos
         run: |
-          git clone --recursive --depth=1 https://github.com/theos/theos.git ${{ github.workspace }}/theos
-          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
-          echo "PATH=${{ github.workspace }}/theos/bin:$PATH" >> $GITHUB_ENV
-          # Install ldid for signing
-          brew install ldid
-          ls ${{ github.workspace }}/theos/
-          ${{ github.workspace }}/theos/bin/nic.pl --help 2>&1 | head -3
+          # Theos - jailbreak dev toolkit
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Build dylib
+      - name: Build package
         run: |
-          cd ${{ github.workspace }}
-          export THEOS=${{ github.workspace }}/theos
+          export THEOS=$HOME/theos
           export PATH=$THEOS/bin:$PATH
-          # Build tweak
-          make package FINALPACKAGE=1
-          echo "Make exit: $?"
-          ls -la
-          find . -name "*.dylib" 2>/dev/null
-          find . -name "*.deb" 2>/dev/null
+          make package
+          ls -la packages/
 
-      - name: Find dylib
-        id: find_dylib
-        run: |
-          cd ${{ github.workspace }}
-          DYLIB=$(find . -name "VibeTokHD.dylib" 2>/dev/null | head -1)
-          if [ -z "$DYLIB" ]; then
-            echo "ERROR: VibeTokHD.dylib not found"
-            echo "Looking for any dylib..."
-            find . -name "*.dylib" 2>/dev/null
-            echo "Looking for any deb..."
-            find . -name "*.deb" 2>/dev/null
-            exit 1
-          fi
-          echo "DYLIB=$DYLIB" >> $GITHUB_OUTPUT
-          echo "Found: $DYLIB"
-
-      - name: Download original TikTok.ipa
-        env:
-          VIBETOK_IPA_URL: ${{ secrets.VIBETOK_IPA_URL }}
-        run: |
-          if [ -z "$VIBETOK_IPA_URL" ]; then
-            echo "ERROR: VIBETOK_IPA_URL secret not set"
-            exit 1
-          fi
-          mkdir -p ${{ github.workspace }}/build
-          cd ${{ github.workspace }}/build
-          echo "Downloading from: $VIBETOK_IPA_URL"
-          curl -L -o TikTok.ipa "$VIBETOK_IPA_URL"
-          echo "=== Downloaded file ==="
-          ls -la
-          file TikTok.ipa
-          # Verify it is a valid IPA (iOS App Zip)
-          if ! file TikTok.ipa | grep -q "iOS App Zip"; then
-            echo "WARNING: Downloaded file may not be a valid IPA"
-          fi
-
-      - name: Inject tweak into IPA
-        run: |
-          cd ${{ github.workspace }}/build
-
-          DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
-          echo "Using dylib: $DYLIB_PATH"
-
-          # Use Python script to preserve original compression per-file
-          export WORK_DIR=${{ github.workspace }}/build
-          export DYLIB_PATH="$DYLIB_PATH"
-          python3 ${{ github.workspace }}/build_inject.py
-
-          echo "=== File sizes ==="
-          ls -la *.ipa
-
-          echo "=== Verify integrity ==="
-          file VibeTokHD-signed.ipa
-          unzip -t VibeTokHD-signed.ipa | tail -3
-
-          # Check that VibeTok.dylib is inside
-          echo "=== VibeTok.dylib in IPA ==="
-          unzip -l VibeTokHD-signed.ipa | grep VibeTok
-
-      - name: Upload IPA artifact
+      - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: VibeTokHD-IPA
-          path: ${{ github.workspace }}/build/VibeTokHD-signed.ipa
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Build summary
-        if: always()
-        run: |
-          echo "========================================"
-          echo "Build process completed"
-          echo "========================================"
+          name: VibeTokHD-deb
+          path: packages/*.deb

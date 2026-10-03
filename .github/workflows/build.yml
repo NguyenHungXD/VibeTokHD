@@ -22,7 +22,7 @@ jobs:
       - name: Build dylib
         run: |
           cd ${{ github.workspace }}
-          make package FINALPACKAGE=1 || (cd $THEOS && make package FINALPACKAGE=1)
+          make package FINALPACKAGE=1
           ls -la
           find . -name "*.dylib" 2>/dev/null
 
@@ -32,8 +32,7 @@ jobs:
           cd ${{ github.workspace }}
           DYLIB=$(find . -name "VibeTokHD.dylib" 2>/dev/null | head -1)
           if [ -z "$DYLIB" ]; then
-            echo "Searching for any dylib..."
-            find . -name "*.dylib" 2>/dev/null
+            echo "ERROR: VibeTokHD.dylib not found"
             exit 1
           fi
           echo "DYLIB=$DYLIB" >> $GITHUB_OUTPUT
@@ -41,39 +40,69 @@ jobs:
 
       - name: Download original TikTok.ipa
         env:
-          URL: ${{ secrets.VIBETOK_IPA_URL }}
+          VIBETOK_IPA_URL: ${{ secrets.VIBETOK_IPA_URL }}
         run: |
-          mkdir -p build
-          cd build
-          # Download original VibeTok IPAs (search for the source)
-          # User provides URL via repo variable or environment
-          if [ -n "$URL" ]; then
-            curl -L -o TikTok.ipa "$URL"
-          else
-            echo "URL not set in VIBETOK_IPA_URL secret"
-            echo "Will use unsigned approach"
+          if [ -z "$VIBETOK_IPA_URL" ]; then
+            echo "ERROR: VIBETOK_IPA_URL secret not set"
+            echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
           fi
+          mkdir -p ${{ github.workspace }}/build
+          cd ${{ github.workspace }}/build
+          curl -L -o TikTok.ipa "$VIBETOK_IPA_URL"
           ls -la
+          file TikTok.ipa
 
       - name: Inject tweak into IPA
         run: |
           cd ${{ github.workspace }}/build
-          if [ -f TikTok.ipa ]; then
-            unzip -q TikTok.ipa -d extracted
-            DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
-            cp "$DYLIB_PATH" extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib
-            cd extracted
-            zip -qr ../VibeTokHD-signed.ipa Payload/
-            cd ..
-            ls -la
+          unzip -q TikTok.ipa -d extracted
+
+          # Patch Info.plist if needed (add Substrate filter)
+          PLIST="extracted/Payload/TikTok.app/Info.plist"
+          if [ -f "$PLIST" ]; then
+            echo "Patching Info.plist..."
+            # Add Substrate filter via PlistBuddy (macOS only)
+            /usr/libexec/PlistBuddy -c "Add :LSEnvironment:MobileSubstrate  string true" "$PLIST" 2>/dev/null || true
           fi
+
+          # Copy dylib
+          DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
+          mkdir -p "extracted/Payload/TikTok.app/Frameworks"
+          cp "$DYLIB_PATH" "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
+
+          # Show structure
+          ls -la extracted/Payload/TikTok.app/Frameworks/
+
+          # Sign the dylib (ad-hoc)
+          codesign --force --sign - "extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib"
+
+          # Re-zip
+          cd extracted
+          zip -qr ../VibeTokHD-signed.ipa Payload/
+          cd ..
+          ls -la
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: VibeTokHD-IPA
-          path: |
-            ${{ github.workspace }}/build/VibeTokHD-signed.ipa
-            ${{ github.workspace }}/build/extracted/Payload/TikTok.app/Frameworks/VibeTokHD.dylib
-          if-no-files-found: warn
+          path: ${{ github.workspace }}/build/VibeTokHD-signed.ipa
+          if-no-files-found: error
           retention-days: 7
+
+      - name: Build summary
+        if: success()
+        run: |
+          echo "========================================"
+          echo "BUILD SUCCESSFUL"
+          echo "========================================"
+          echo ""
+          echo "Download VibeTokHD-IPA from:"
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "Install via:"
+          echo "  - Sideloadly (Windows): kéo IPA vào, đăng nhập Apple ID"
+          echo "  - AltStore (iPhone): install qua My Apps"
+          echo "  - TrollStore (nếu iOS 15+)"
+          echo ""

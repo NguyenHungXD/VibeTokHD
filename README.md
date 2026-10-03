@@ -25,6 +25,25 @@ Tweak này patch các điểm sau:
 ### 3. Hook `NSURL.URLWithString:`
 - Auto-strip query trên URL `tiktokcdn.com`
 
+## Tính năng (v2.0 - All-in-One)
+
+### 📸 Photos (HD Photos)
+- Lấy `originPhotoURL` thay vì UIImage thumbnail
+- Bỏ query compression `~tplv-` → `~tplv-noop.`
+- Auto-strip URL có chứa `tiktokcdn.com?` query
+
+### 🎬 Videos (HD Videos)
+- Lấy `playURLList` với bit-rate cao nhất
+- Tự động tải khi nhấn "Save Video"
+
+### 🚫 No Watermark
+- Tự động crop logo TikTok ở góc dưới phải
+- Áp dụng cho tất cả ảnh tải về
+
+### 📑 Slideshow
+- Lưu tất cả ảnh từ bài slideshow
+- Hỗ trợ bài đăng nhiều ảnh
+
 ## Build
 
 ### Tự động - GitHub Actions (Khuyến nghị)

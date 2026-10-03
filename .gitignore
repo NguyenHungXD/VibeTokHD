@@ -1,0 +1,4 @@
+*.deb
+*.o
+*.bak
+.DS_Store

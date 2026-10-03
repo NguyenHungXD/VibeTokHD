@@ -1,0 +1,79 @@
+name: Build Full IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git ${{ github.workspace }}/theos
+          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
+          export PATH=$THEOS/bin:$PATH
+
+      - name: Build dylib
+        run: |
+          cd ${{ github.workspace }}
+          make package FINALPACKAGE=1 || (cd $THEOS && make package FINALPACKAGE=1)
+          ls -la
+          find . -name "*.dylib" 2>/dev/null
+
+      - name: Find dylib
+        id: find_dylib
+        run: |
+          cd ${{ github.workspace }}
+          DYLIB=$(find . -name "VibeTokHD.dylib" 2>/dev/null | head -1)
+          if [ -z "$DYLIB" ]; then
+            echo "Searching for any dylib..."
+            find . -name "*.dylib" 2>/dev/null
+            exit 1
+          fi
+          echo "DYLIB=$DYLIB" >> $GITHUB_OUTPUT
+          echo "Found: $DYLIB"
+
+      - name: Download original TikTok.ipa
+        env:
+          URL: ${{ secrets.VIBETOK_IPA_URL }}
+        run: |
+          mkdir -p build
+          cd build
+          # Download original VibeTok IPAs (search for the source)
+          # User provides URL via repo variable or environment
+          if [ -n "$URL" ]; then
+            curl -L -o TikTok.ipa "$URL"
+          else
+            echo "URL not set in VIBETOK_IPA_URL secret"
+            echo "Will use unsigned approach"
+          fi
+          ls -la
+
+      - name: Inject tweak into IPA
+        run: |
+          cd ${{ github.workspace }}/build
+          if [ -f TikTok.ipa ]; then
+            unzip -q TikTok.ipa -d extracted
+            DYLIB_PATH=$(find ${{ github.workspace }} -name "VibeTokHD.dylib" 2>/dev/null | head -1)
+            cp "$DYLIB_PATH" extracted/Payload/TikTok.app/Frameworks/VibeTok.dylib
+            cd extracted
+            zip -qr ../VibeTokHD-signed.ipa Payload/
+            cd ..
+            ls -la
+          fi
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeTokHD-IPA
+          path: |
+            ${{ github.workspace }}/build/VibeTokHD-signed.ipa
+            ${{ github.workspace }}/build/extracted/Payload/TikTok.app/Frameworks/VibeTokHD.dylib
+          if-no-files-found: warn
+          retention-days: 7

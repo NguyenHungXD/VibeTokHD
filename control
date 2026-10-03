@@ -1,0 +1,9 @@
+Package: com.6gr8.vibetokhd
+Name: VibeTokHD
+Version: 1.0
+Architecture: iphoneos-arm
+Description: HD photos for VibeTok - use originPhotoURL
+Maintainer: 6gr8
+Author: 6gr8
+Section: Tweaks
+Depends: mobilesubstrate
